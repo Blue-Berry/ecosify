@@ -1,2 +1,5 @@
 (library
- (name ecosify))
+ (name ecosify)
+ (libraries core)
+ (preprocess
+  (pps ppx_jane)))
