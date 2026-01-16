@@ -31,6 +31,15 @@ module Var = struct
     | Vec : atom t array -> vec t
   (* | Matrix : atom t array array -> matrix t *)
 
+  type _ witness =
+    | Atom_wit : atom witness
+    | Vec_wit : vec witness
+
+  let witness_of_t : type a. a t -> a witness = function
+    | Atom _ -> Atom_wit
+    | Vec _ -> Vec_wit
+  ;;
+
   let rec sexp_of_t : type a. a t -> Sexp.t = function
     | Atom id -> Int.sexp_of_t id
     | Vec atoms -> Array.sexp_of_t sexp_of_t atoms
@@ -38,26 +47,77 @@ module Var = struct
 
   let ( .%{} ) (Vec ts : vec t) i = ts.(i)
   let ( .%{}<- ) (Vec ts : vec t) i v = Array.set ts i v
+
+  let size : type a. a t -> int = function
+    | Atom _ -> 1
+    | Vec ts -> Array.length ts
+  ;;
 end
 
-type expr =
-  | Const of float
-  | Var of Var.atom Var.t
-  | Var_vec of Var.vec Var.t
-  | Add of expr * expr
-  | Sub of expr * expr
-  | Mul of float * expr
+type 'a expr =
+  | Const of 'a Var.witness * float
+  | Var of 'a Var.t
+  | Add of 'a expr * 'a expr
+  | Sub of 'a expr * 'a expr
+  | Mul of float * 'a expr
 
-type constr =
-  | Eq of expr * expr
-  | Le of expr * expr
-  | Ge of expr * expr
+type 'a constr =
+  | Eq of 'a expr * 'a expr
+  | Le of 'a expr * 'a expr
+  | Ge of 'a expr * 'a expr
 
-let next_id =
-  let r = ref 0 in
-  fun () ->
-    incr r;
-    !r
+type constr_packed =
+  | Constr_vec : Var.vec constr -> constr_packed
+  | Constr_atom : Var.atom constr -> constr_packed
+
+let rec witness_of_expr : type a. a expr -> a Var.witness = function
+  | Const (w, _) -> w
+  | Var e -> Var.witness_of_t e
+  | Add (l, _) -> witness_of_expr l
+  | Sub (l, _) -> witness_of_expr l
+  | Mul (_, r) -> witness_of_expr r
+;;
+
+let pack_contr : type a. a Var.witness -> a constr -> constr_packed =
+  fun witness constr ->
+  match witness with
+  | Atom_wit -> Constr_atom constr
+  | Vec_wit -> Constr_vec constr
+;;
+
+module Eval = struct
+  let ( == ) : type a. a expr -> a expr -> constr_packed =
+    fun l r -> pack_contr (witness_of_expr l) (Eq (l, r))
+  ;;
+
+  let ( <= ) : type a. a expr -> a expr -> constr_packed =
+    fun l r -> pack_contr (witness_of_expr l) (Le (l, r))
+  ;;
+
+  let ( >= ) : type a. a expr -> a expr -> constr_packed =
+    fun l r -> pack_contr (witness_of_expr l) (Ge (l, r))
+  ;;
+
+  let ( + ) : type a. a expr -> a expr -> a expr = fun l r -> Add (l, r)
+  let ( - ) : type a. a expr -> a expr -> a expr = fun l r -> Sub (l, r)
+  let ( * ) : type a. float -> a expr -> a expr = fun l r -> Mul (l, r)
+end
+
+type ws =
+  { vars : int ref
+  ; mutable constraints : constr_packed list
+  }
+
+let variable ws =
+  incr ws.vars;
+  Var.Atom !(ws.vars)
+;;
+
+let variables ws size =
+  Var.Vec
+    (Array.init size ~f:(fun _ ->
+       incr ws.vars;
+       Var.Atom !(ws.vars)))
 ;;
 
 (* module M = struct *)
