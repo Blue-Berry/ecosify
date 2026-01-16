@@ -20,30 +20,32 @@ ideas infix operators for >=, +, -, = etc
 decision variables are lists
  *)
 module Var = struct
-  type vec
-  type atom
+  type vec [@@deriving sexp_of]
+  type atom [@@deriving sexp_of]
   type matrix
-  type var_id = int
+  type var_id = int [@@deriving sexp_of]
 
   (* Operations should work for individual values and vector of values *)
   type _ t =
     | Atom : var_id -> atom t
     | Vec : atom t array -> vec t
+  [@@deriving sexp_of]
   (* | Matrix : atom t array array -> matrix t *)
 
   type _ witness =
     | Atom_wit : atom witness
     | Vec_wit : vec witness
+  [@@deriving sexp_of]
 
   let witness_of_t : type a. a t -> a witness = function
     | Atom _ -> Atom_wit
     | Vec _ -> Vec_wit
   ;;
 
-  let rec sexp_of_t : type a. a t -> Sexp.t = function
-    | Atom id -> Int.sexp_of_t id
-    | Vec atoms -> Array.sexp_of_t sexp_of_t atoms
-  ;;
+  (* let rec sexp_of_t : type a. a t -> Sexp.t = function *)
+  (*   | Atom id -> Int.sexp_of_t id *)
+  (*   | Vec atoms -> Array.sexp_of_t sexp_of_t atoms *)
+  (* ;; *)
 
   let ( .%{} ) (Vec ts : vec t) i = ts.(i)
   let ( .%{}<- ) (Vec ts : vec t) i v = Array.set ts i v
@@ -60,15 +62,18 @@ type 'a expr =
   | Add of 'a expr * 'a expr
   | Sub of 'a expr * 'a expr
   | Mul of float * 'a expr
+[@@deriving sexp_of]
 
 type 'a constr =
   | Eq of 'a expr * 'a expr
   | Le of 'a expr * 'a expr
   | Ge of 'a expr * 'a expr
+[@@deriving sexp_of]
 
 type constr_packed =
   | Constr_vec : Var.vec constr -> constr_packed
   | Constr_atom : Var.atom constr -> constr_packed
+[@@deriving sexp_of]
 
 let rec witness_of_expr : type a. a expr -> a Var.witness = function
   | Const (w, _) -> w
@@ -85,7 +90,7 @@ let pack_contr : type a. a Var.witness -> a constr -> constr_packed =
   | Vec_wit -> Constr_vec constr
 ;;
 
-module Eval = struct
+module Infix = struct
   let ( == ) : type a. a expr -> a expr -> constr_packed =
     fun l r -> pack_contr (witness_of_expr l) (Eq (l, r))
   ;;
@@ -108,32 +113,17 @@ type ws =
   ; mutable constraints : constr_packed list
   }
 
+let new_ws : unit -> ws = fun () -> { vars = ref 0; constraints = [] }
+
 let variable ws =
   incr ws.vars;
-  Var.Atom !(ws.vars)
+  Var (Var.Atom !(ws.vars))
 ;;
 
 let variables ws size =
-  Var.Vec
-    (Array.init size ~f:(fun _ ->
-       incr ws.vars;
-       Var.Atom !(ws.vars)))
+  Var
+    (Var.Vec
+       (Array.init size ~f:(fun _ ->
+          incr ws.vars;
+          Var.Atom !(ws.vars))))
 ;;
-
-(* module M = struct *)
-(*   type ineq *)
-
-(*   type t = *)
-(*     { decision_variables : int *)
-(*     ; eq : Equality.t list *)
-(*     ; ineq : ineq list *)
-(*     } *)
-
-(*   let decision_variable (t : t) (size : int) = *)
-(*     ( { t with decision_variables = t.decision_variables + size } *)
-(*     , Array.init size ~f:(fun i -> t.decision_variables + i) ) *)
-(*   ;; *)
-
-(*   let add_eq (t : t) (eq : Equality.t) = { t with eq = eq :: t.eq } *)
-(*   let add_ineq (t : t) (ineq : ineq) = { t with ineq = ineq :: t.ineq } *)
-(* end *)

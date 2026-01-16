@@ -1,5 +1,14 @@
 (library
  (name ecosify)
+ (modules model)
  (libraries core)
+ (preprocess
+  (pps ppx_jane)))
+
+(library
+ (name ecosify_test)
+ (modules model_test)
+ (libraries ecosify core)
+ (inline_tests)
  (preprocess
   (pps ppx_jane)))
