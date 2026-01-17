@@ -122,7 +122,7 @@ module Linear_constr : sig
 end = struct
   type t =
     | Equality of ((Var.var_id * float) list * float)
-      (* | Inequality of ((Var.var_id * float) list * float) *)
+    | Inequality_lt of ((Var.var_id * float) list * float)
   [@@deriving sexp_of]
 
   type linear_atom =
@@ -137,25 +137,20 @@ end = struct
     { coeffs = List.map coeffs ~f:(fun (id, c) -> id, s *. c); const = s *. const }
   ;;
 
-  (* BROKEN!!!! *)
   let merge_atoms (xs : linear_atom) (ys : linear_atom) =
-    let rec aux (xs : (Var.var_id * float) list) (ys : (Var.var_id * float) list) =
-      match ys with
-      | [] -> xs
-      | y :: ys ->
-        (match
-           List.find xs ~f:(fun (x_id, _) ->
-             let y_id, _ = y in
-             Int.(y_id = x_id))
-         with
-         | None -> aux (y :: xs) ys
-         | Some (x_id, x_coeff) ->
-           let xs = List.filter xs ~f:(fun (x_id', _) -> Int.(x_id = x_id')) in
-           let y_id, y_coef = y in
-           assert (Int.(y_id = x_id));
-           aux ((x_id, x_coeff +. y_coef) :: xs) ys)
+    let rec join coeffs ~acc =
+      match coeffs with
+      | [] -> acc
+      | x :: x' :: xs when Int.(fst x = fst x') ->
+        join ((fst x, snd x +. snd x') :: xs) ~acc
+      | x :: xs -> join xs ~acc:(x :: acc)
     in
-    { coeffs = aux xs.coeffs ys.coeffs; const = xs.const +. ys.const }
+    let coeffs =
+      xs.coeffs @ ys.coeffs
+      |> List.sort ~compare:(fun (a, _) (b, _) -> Int.compare a b)
+      |> join ~acc:[]
+    in
+    { coeffs; const = xs.const +. ys.const }
   ;;
 
   let (add : linear_atom -> linear_atom -> linear_atom) = merge_atoms
@@ -178,7 +173,18 @@ end = struct
       let coeffs = (sub lhs rhs).coeffs in
       let const = (sub rhs lhs).const in
       Equality (coeffs, const)
-    | _ -> failwith "todo"
+    | Le (lhs, rhs) ->
+      let lhs = linearize_atom lhs in
+      let rhs = linearize_atom rhs in
+      let coeffs = (sub lhs rhs).coeffs in
+      let const = (sub rhs lhs).const in
+      Inequality_lt (coeffs, const)
+    | Ge (lhs, rhs) ->
+      let lhs = linearize_atom lhs in
+      let rhs = linearize_atom rhs in
+      let coeffs = (sub rhs lhs).coeffs in
+      let const = (sub lhs rhs).const in
+      Inequality_lt (coeffs, const)
   ;;
 
   let linearise_constr : constr_packed -> t = function

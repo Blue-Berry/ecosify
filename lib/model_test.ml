@@ -108,7 +108,33 @@ let%expect_test "linearised equality" =
   let x3 = variable ws in
   let l = Const 10. in
   let open Infix in
-  let a = x1 + (2. * (x2 + x3)) == l in
+  let a = x1 + (2. * (x2 + x3)) + (2. * x1) == l in
   Linear_constr.linearise_constr a |> Linear_constr.sexp_of_t |> print_s;
-  [%expect {| (Equality (((2 2) (3 2) (1 1)) 10)) |}]
+  [%expect {| (Equality (((3 2) (2 2) (1 3)) 10)) |}]
+;;
+
+let%expect_test "linearised inequality" =
+  let open Model in
+  let ws = new_ws () in
+  let x1 = variable ws in
+  let x2 = variable ws in
+  let x3 = variable ws in
+  let l = Const 10. in
+  let open Infix in
+  let a = x1 + (2. * (x2 + x3)) + (2. * x1) <= l in
+  Linear_constr.linearise_constr a |> Linear_constr.sexp_of_t |> print_s;
+  [%expect {| (Inequality_lt (((3 2) (2 2) (1 3)) 10)) |}]
+;;
+
+let%expect_test "linearised inequality 2" =
+  let open Model in
+  let ws = new_ws () in
+  let x1 = variable ws in
+  let x2 = variable ws in
+  let x3 = variable ws in
+  let l = Const 10. in
+  let open Infix in
+  let a = x1 + (2. * (x2 + x3)) + (2. * x1) >= l in
+  Linear_constr.linearise_constr a |> Linear_constr.sexp_of_t |> print_s;
+  [%expect {| (Inequality_lt (((3 -2) (2 -2) (1 -3)) -10)) |}]
 ;;
