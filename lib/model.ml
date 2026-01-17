@@ -113,3 +113,76 @@ let variables ws size =
 ;;
 
 let const_of_list xs = Data (Array.of_list xs)
+
+module Linear_constr : sig
+  type t
+
+  val sexp_of_t : t -> Sexp.t
+  val linearise_constr : constr_packed -> t
+end = struct
+  type t =
+    | Equality of ((Var.var_id * float) list * float)
+      (* | Inequality of ((Var.var_id * float) list * float) *)
+  [@@deriving sexp_of]
+
+  type linear_atom =
+    { coeffs : (Var.var_id * float) list
+    ; const : float
+    }
+
+  let of_var id = { coeffs = [ id, 1. ]; const = 0. }
+  let of_const c = { coeffs = []; const = c }
+
+  let scale s { coeffs; const } =
+    { coeffs = List.map coeffs ~f:(fun (id, c) -> id, s *. c); const = s *. const }
+  ;;
+
+  (* BROKEN!!!! *)
+  let merge_atoms (xs : linear_atom) (ys : linear_atom) =
+    let rec aux (xs : (Var.var_id * float) list) (ys : (Var.var_id * float) list) =
+      match ys with
+      | [] -> xs
+      | y :: ys ->
+        (match
+           List.find xs ~f:(fun (x_id, _) ->
+             let y_id, _ = y in
+             Int.(y_id = x_id))
+         with
+         | None -> aux (y :: xs) ys
+         | Some (x_id, x_coeff) ->
+           let xs = List.filter xs ~f:(fun (x_id', _) -> Int.(x_id = x_id')) in
+           let y_id, y_coef = y in
+           assert (Int.(y_id = x_id));
+           aux ((x_id, x_coeff +. y_coef) :: xs) ys)
+    in
+    { coeffs = aux xs.coeffs ys.coeffs; const = xs.const +. ys.const }
+  ;;
+
+  let (add : linear_atom -> linear_atom -> linear_atom) = merge_atoms
+  let sub l r = add l (scale (-1.) r)
+
+  let rec linearize_atom : Var.atom expr -> linear_atom = function
+    | Var (Var.Atom id) -> of_var id
+    | Const c -> of_const c
+    | Add (l, r) -> add (linearize_atom l) (linearize_atom r)
+    | Sub (l, r) -> sub (linearize_atom l) (linearize_atom r)
+    | Mul (s, e) -> scale s (linearize_atom e)
+    | Var (Var.Vec _) -> failwith "Can't linearise vec"
+    | Data _ -> failwith "Can't linearise vec"
+  ;;
+
+  let equality_atom : Var.atom constr -> t = function
+    | Eq (lhs, rhs) ->
+      let lhs = linearize_atom lhs in
+      let rhs = linearize_atom rhs in
+      let coeffs = (sub lhs rhs).coeffs in
+      let const = (sub rhs lhs).const in
+      Equality (coeffs, const)
+    | _ -> failwith "todo"
+  ;;
+
+  let linearise_constr : constr_packed -> t = function
+    | Constr_atom c -> equality_atom c
+    | _ -> failwith "todo"
+  ;;
+end

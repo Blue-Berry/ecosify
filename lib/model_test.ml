@@ -13,8 +13,7 @@ let%expect_test "simepl atom expr" =
   [%expect
     {|
     (Constr_atom
-     (Eq (Add (Add (Var (Atom 1)) (Var (Atom 2))) (Var (Atom 3)))
-      (Const Atom_wit 10)))
+     (Eq (Add (Add (Var (Atom 1)) (Var (Atom 2))) (Var (Atom 3))) (Const 10)))
     |}]
 ;;
 
@@ -31,8 +30,7 @@ let%expect_test "simepl atom expr 2" =
   [%expect
     {|
     (Constr_atom
-     (Eq (Add (Add (Var (Atom 1)) (Var (Atom 2))) (Var (Atom 3)))
-      (Const Atom_wit 10)))
+     (Eq (Add (Add (Var (Atom 1)) (Var (Atom 2))) (Var (Atom 3))) (Const 10)))
     |}]
 ;;
 
@@ -64,7 +62,7 @@ let%expect_test "simepl vec expr" =
         (Vec
          ((Atom 21) (Atom 22) (Atom 23) (Atom 24) (Atom 25) (Atom 26) (Atom 27)
           (Atom 28) (Atom 29) (Atom 30)))))
-      (Const Vec_wit 10)))
+      (Data (1 2 3 4 5 6 7 8 9 10))))
     |}]
 ;;
 
@@ -75,21 +73,21 @@ let%expect_test "simepl vec expr" =
   let x2 = variables ws 10 in
   let x3 = variables ws 10 in
   let g = const_of_list [ 1.; 2.; 3.; 4.; 5.; 6.; 7.; 8.; 9.; 10. ] in
-  let l = Const (Var.Vec_wit, 10.) in
   let open Infix in
-  let a = x1 + x2 + x3 == l in
+  let a = 3. * ((2. * x1) + x2 + x3) == g in
   Model.sexp_of_constr_packed a |> print_s;
   [%expect
     {|
     (Constr_vec
      (Eq
-      (Add
+      (Mul 3
        (Add
         (Add
-         (Var
-          (Vec
-           ((Atom 1) (Atom 2) (Atom 3) (Atom 4) (Atom 5) (Atom 6) (Atom 7)
-            (Atom 8) (Atom 9) (Atom 10))))
+         (Mul 2
+          (Var
+           (Vec
+            ((Atom 1) (Atom 2) (Atom 3) (Atom 4) (Atom 5) (Atom 6) (Atom 7)
+             (Atom 8) (Atom 9) (Atom 10)))))
          (Var
           (Vec
            ((Atom 11) (Atom 12) (Atom 13) (Atom 14) (Atom 15) (Atom 16) (Atom 17)
@@ -97,8 +95,20 @@ let%expect_test "simepl vec expr" =
         (Var
          (Vec
           ((Atom 21) (Atom 22) (Atom 23) (Atom 24) (Atom 25) (Atom 26) (Atom 27)
-           (Atom 28) (Atom 29) (Atom 30)))))
-       (Data (1 2 3 4 5 6 7 8 9 10)))
-      (Const Vec_wit 10)))
+           (Atom 28) (Atom 29) (Atom 30))))))
+      (Data (1 2 3 4 5 6 7 8 9 10))))
     |}]
+;;
+
+let%expect_test "linearised equality" =
+  let open Model in
+  let ws = new_ws () in
+  let x1 = variable ws in
+  let x2 = variable ws in
+  let x3 = variable ws in
+  let l = Const 10. in
+  let open Infix in
+  let a = x1 + (2. * (x2 + x3)) == l in
+  Linear_constr.linearise_constr a |> Linear_constr.sexp_of_t |> print_s;
+  [%expect {| (Equality (((2 2) (3 2) (1 1)) 10)) |}]
 ;;
