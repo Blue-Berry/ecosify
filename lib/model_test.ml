@@ -109,8 +109,8 @@ let%expect_test "linearised equality" =
   let l = Const 10. in
   let open Infix in
   let a = x1 + (2. * (x2 + x3)) + (2. * x1) == l in
-  Linear_constr.linearise_constr a |> Linear_constr.sexp_of_t |> print_s;
-  [%expect {| (Equality (((3 2) (2 2) (1 3)) 10)) |}]
+  Eval_constr.eval_constr a |> List.sexp_of_t Eval_constr.sexp_of_t |> print_s;
+  [%expect {| ((Equality (((3 2) (2 2) (1 3)) 10))) |}]
 ;;
 
 let%expect_test "linearised inequality" =
@@ -122,8 +122,8 @@ let%expect_test "linearised inequality" =
   let l = Const 10. in
   let open Infix in
   let a = x1 + (2. * (x2 + x3)) + (2. * x1) <= l in
-  Linear_constr.linearise_constr a |> Linear_constr.sexp_of_t |> print_s;
-  [%expect {| (Inequality_lt (((3 2) (2 2) (1 3)) 10)) |}]
+  Eval_constr.eval_constr a |> List.sexp_of_t Eval_constr.sexp_of_t |> print_s;
+  [%expect {| ((Inequality_lt (((3 2) (2 2) (1 3)) 10))) |}]
 ;;
 
 let%expect_test "linearised inequality 2" =
@@ -135,6 +135,32 @@ let%expect_test "linearised inequality 2" =
   let l = Const 10. in
   let open Infix in
   let a = x1 + (2. * (x2 + x3)) + (2. * x1) >= l in
-  Linear_constr.linearise_constr a |> Linear_constr.sexp_of_t |> print_s;
-  [%expect {| (Inequality_lt (((3 -2) (2 -2) (1 -3)) -10)) |}]
+  Eval_constr.eval_constr a |> List.sexp_of_t Eval_constr.sexp_of_t |> print_s;
+  [%expect {| ((Inequality_lt (((3 -2) (2 -2) (1 -3)) -10))) |}]
+;;
+
+let%expect_test "linearised inequality 2" =
+  let open Model in
+  let ws = new_ws () in
+  let x1 = variables ws 10 in
+  let x2 = variables ws 10 in
+  let x3 = variables ws 10 in
+  let g = const_of_list [ 1.; 2.; 3.; 4.; 5.; 6.; 7.; 8.; 9.; 10. ] in
+  let open Infix in
+  let a = 3. * ((2. * x1) + x2 + x3) == g in
+  Eval_constr.eval_constr a |> List.sexp_of_t Eval_constr.sexp_of_t |> print_s;
+  [%expect.unreachable]
+[@@expect.uncaught_exn {|
+  (* CR expect_test_collector: This test expectation appears to contain a backtrace.
+     This is strongly discouraged as backtraces are fragile.
+     Please change this test to not include a backtrace. *)
+  (Invalid_argument "length mismatch in Array.map2_exn: 0 <> 10")
+  Raised at Stdlib.invalid_arg in file "stdlib.ml", line 30, characters 20-45
+  Called from Base__Array.map2_exn in file "src/array.ml", line 571, characters 2-42
+  Called from Ecosify__Model.Eval_constr.Vec.merge in file "lib/model.ml", line 229, characters 23-76
+  Called from Ecosify__Model.Eval_constr.Vec.sub in file "lib/model.ml" (inlined), line 233, characters 18-39
+  Called from Ecosify__Model.Eval_constr.Vec.eval_constr in file "lib/model.ml", line 258, characters 21-34
+  Called from Ecosify_test__Model_test.(fun) in file "lib/model_test.ml", line 151, characters 2-27
+  Called from Ppx_expect_runtime__Test_block.Configured.dump_backtrace in file "runtime/test_block.ml", line 142, characters 10-28
+  |}]
 ;;
