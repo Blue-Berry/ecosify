@@ -226,7 +226,13 @@ module Eval_constr = struct
         |> List.sort ~compare:(fun a b -> Int.compare (fst a.(0)) (fst b.(0)))
         |> join ~acc:[]
       in
-      { coeffs; data = Array.map2_exn xs.data ys.data ~f:(fun a b -> a +. b) }
+      if Array.length xs.data = Array.length ys.data
+      then { coeffs; data = Array.map2_exn xs.data ys.data ~f:(fun a b -> a +. b) }
+      else (
+        match Array.length xs.data, Array.length ys.data with
+        | _, 0 -> { coeffs; data = xs.data }
+        | 0, _ -> { coeffs; data = ys.data }
+        | _ -> failwith "Invalid array length")
     ;;
 
     let (add : t -> t -> t) = merge

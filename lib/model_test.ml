@@ -149,18 +149,11 @@ let%expect_test "linearised inequality 2" =
   let open Infix in
   let a = 3. * ((2. * x1) + x2 + x3) == g in
   Eval_constr.eval_constr a |> List.sexp_of_t Eval_constr.sexp_of_t |> print_s;
-  [%expect.unreachable]
-[@@expect.uncaught_exn {|
-  (* CR expect_test_collector: This test expectation appears to contain a backtrace.
-     This is strongly discouraged as backtraces are fragile.
-     Please change this test to not include a backtrace. *)
-  (Invalid_argument "length mismatch in Array.map2_exn: 0 <> 10")
-  Raised at Stdlib.invalid_arg in file "stdlib.ml", line 30, characters 20-45
-  Called from Base__Array.map2_exn in file "src/array.ml", line 571, characters 2-42
-  Called from Ecosify__Model.Eval_constr.Vec.merge in file "lib/model.ml", line 229, characters 23-76
-  Called from Ecosify__Model.Eval_constr.Vec.sub in file "lib/model.ml" (inlined), line 233, characters 18-39
-  Called from Ecosify__Model.Eval_constr.Vec.eval_constr in file "lib/model.ml", line 258, characters 21-34
-  Called from Ecosify_test__Model_test.(fun) in file "lib/model_test.ml", line 151, characters 2-27
-  Called from Ppx_expect_runtime__Test_block.Configured.dump_backtrace in file "runtime/test_block.ml", line 142, characters 10-28
-  |}]
+  [%expect {|
+    ((Equality (((21 3) (11 3) (1 6)) 1)) (Equality (((22 3) (12 3) (2 6)) 2))
+     (Equality (((23 3) (13 3) (3 6)) 3)) (Equality (((24 3) (14 3) (4 6)) 4))
+     (Equality (((25 3) (15 3) (5 6)) 5)) (Equality (((26 3) (16 3) (6 6)) 6))
+     (Equality (((27 3) (17 3) (7 6)) 7)) (Equality (((28 3) (18 3) (8 6)) 8))
+     (Equality (((29 3) (19 3) (9 6)) 9)) (Equality (((30 3) (20 3) (10 6)) 10)))
+    |}]
 ;;
