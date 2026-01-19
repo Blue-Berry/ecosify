@@ -135,7 +135,7 @@ let%expect_test "linearised inequality" =
   let open Infix in
   let a = x1 + (2. * (x2 + x3)) + (2. * x1) <= l in
   Eval_constr.eval_constr a |> List.sexp_of_t Eval_constr.sexp_of_t |> print_s;
-  [%expect {| ((Inequality_lt (((3 2) (2 2) (1 3)) 10))) |}]
+  [%expect {| ((Inequality_le (((3 2) (2 2) (1 3)) 10))) |}]
 ;;
 
 let%expect_test "linearised inequality 2" =
@@ -148,7 +148,7 @@ let%expect_test "linearised inequality 2" =
   let open Infix in
   let a = x1 + (2. * (x2 + x3)) + (2. * x1) >= l in
   Eval_constr.eval_constr a |> List.sexp_of_t Eval_constr.sexp_of_t |> print_s;
-  [%expect {| ((Inequality_lt (((3 -2) (2 -2) (1 -3)) -10))) |}]
+  [%expect {| ((Inequality_le (((3 -2) (2 -2) (1 -3)) -10))) |}]
 ;;
 
 let%expect_test "linearised inequality 2" =

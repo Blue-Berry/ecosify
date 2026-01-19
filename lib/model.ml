@@ -115,14 +115,17 @@ let variables ws size =
 let const_of_list xs = Data (Array.of_list xs)
 
 module Eval_constr = struct
+  type coeff = Var.var_id * float [@@deriving sexp_of]
+  type row = coeff list * float [@@deriving sexp_of]
+
   type t =
-    | Equality of ((Var.var_id * float) list * float)
-    | Inequality_lt of ((Var.var_id * float) list * float)
+    | Equality of row
+    | Inequality_le of row
   [@@deriving sexp_of]
 
   module Atom = struct
     type t =
-      { coeffs : (Var.var_id * float) list
+      { coeffs : coeff list
       ; const : float
       }
 
@@ -133,7 +136,7 @@ module Eval_constr = struct
       { coeffs = List.map coeffs ~f:(fun (id, c) -> id, s *. c); const = s *. const }
     ;;
 
-    let merge (xs : t) (ys : t) =
+    let add (xs : t) (ys : t) =
       let rec join coeffs ~acc =
         match coeffs with
         | [] -> acc
@@ -149,7 +152,6 @@ module Eval_constr = struct
       { coeffs; const = xs.const +. ys.const }
     ;;
 
-    let (add : t -> t -> t) = merge
     let sub l r = add l (scale (-1.) r)
 
     let rec linearize_expr : Var.atom expr -> t = function
@@ -174,20 +176,20 @@ module Eval_constr = struct
         let rhs = linearize_expr rhs in
         let coeffs = (sub lhs rhs).coeffs in
         let const = (sub rhs lhs).const in
-        Inequality_lt (coeffs, const)
+        Inequality_le (coeffs, const)
       | Ge (lhs, rhs) ->
         let lhs = linearize_expr lhs in
         let rhs = linearize_expr rhs in
         let coeffs = (sub rhs lhs).coeffs in
         let const = (sub lhs rhs).const in
-        Inequality_lt (coeffs, const)
+        Inequality_le (coeffs, const)
     ;;
   end
 
   module Vec = struct
     type t =
-      { coeffs : (Var.var_id * float) array list
-      ; data : float array
+      { coeffs : coeff array list
+      ; consts : float array
       }
 
     let of_var (v : Var.atom Var.t array) =
@@ -196,21 +198,21 @@ module Eval_constr = struct
               | Var.Vec _ -> failwith "Not possible"
               | Atom id -> id, 1.)
           ]
-      ; data = [||]
+      ; consts = [||]
       }
     ;;
 
-    let of_data d = { coeffs = []; data = d }
+    let of_data d = { coeffs = []; consts = d }
 
-    let scale s { coeffs; data } =
+    let scale s { coeffs; consts } =
       { coeffs = List.map coeffs ~f:(fun v -> Array.map v ~f:(fun (id, c) -> id, c *. s))
-      ; data = Array.map data ~f:(fun x -> x *. s)
+      ; consts = Array.map consts ~f:(fun x -> x *. s)
       }
     ;;
 
-    let merge (xs : t) (ys : t) =
+    let add (xs : t) (ys : t) =
       let n_max =
-        max (Array.length xs.data) (Array.length ys.data)
+        max (Array.length xs.consts) (Array.length ys.consts)
         |> max
              (List.max_elt xs.coeffs ~compare:(fun a b ->
                 Int.compare (Array.length a) (Array.length b))
@@ -222,7 +224,7 @@ module Eval_constr = struct
               |> Option.value ~default:[||]
               |> Array.length)
       in
-      let resize x =
+      let pad x =
         if Array.length x < n_max
         then (
           let x' = Array.create (0, 0.) ~len:n_max in
@@ -230,12 +232,12 @@ module Eval_constr = struct
           x')
         else x
       in
-      let rec join (coeffs : (int * float) array list) ~(acc : (int * float) array list) =
+      let rec join (coeffs : coeff array list) ~(acc : coeff array list) =
         match coeffs with
         | [] -> acc
         | x :: x1 :: xs when Int.(fst x.(0) = fst x1.(0)) ->
-          let x = resize x in
-          let x1 = resize x1 in
+          let x = pad x in
+          let x1 = pad x1 in
           let x' =
             Array.map2_exn x x1 ~f:(fun (id1, coeff1) (id2, coeff2) ->
               assert (Int.(id1 = id2));
@@ -244,21 +246,20 @@ module Eval_constr = struct
           join (x' :: xs) ~acc
         | x :: xs -> join xs ~acc:(x :: acc)
       in
-      let coeffs : (int * float) array list =
+      let coeffs : coeff array list =
         xs.coeffs @ ys.coeffs
         |> List.sort ~compare:(fun a b -> Int.compare (fst a.(0)) (fst b.(0)))
         |> join ~acc:[]
       in
-      if Array.length xs.data = Array.length ys.data
-      then { coeffs; data = Array.map2_exn xs.data ys.data ~f:(fun a b -> a +. b) }
+      if Array.length xs.consts = Array.length ys.consts
+      then { coeffs; consts = Array.map2_exn xs.consts ys.consts ~f:(fun a b -> a +. b) }
       else (
-        match Array.length xs.data, Array.length ys.data with
-        | _, 0 -> { coeffs; data = xs.data }
-        | 0, _ -> { coeffs; data = ys.data }
+        match Array.length xs.consts, Array.length ys.consts with
+        | _, 0 -> { coeffs; consts = xs.consts }
+        | 0, _ -> { coeffs; consts = ys.consts }
         | _ -> failwith "Invalid array length")
     ;;
 
-    let (add : t -> t -> t) = merge
     let sub l r = add l (scale (-1.) r)
 
     let rec linearize_expr : Var.vec expr -> t = function
@@ -271,16 +272,16 @@ module Eval_constr = struct
       | Const _ -> failwith "Can't linearise Atom as Vec"
     ;;
 
-    let expand (t : t) : ((Var.var_id * float) list * float) list =
+    let expand (t : t) : row list =
       let n_max =
         max
-          (Array.length t.data)
+          (Array.length t.consts)
           (List.max_elt t.coeffs ~compare:(fun a b ->
              Int.compare (Array.length a) (Array.length b))
            |> Option.value ~default:[||]
            |> Array.length)
       in
-      let resize_coeffs x =
+      let pad_coeffs x =
         if Array.length x < n_max
         then (
           let x' = Array.create (0, 0.) ~len:n_max in
@@ -288,7 +289,7 @@ module Eval_constr = struct
           x')
         else x
       in
-      let resize_data x =
+      let pad_data x =
         if Array.length x < n_max
         then (
           let x' = Array.create 0. ~len:n_max in
@@ -296,9 +297,9 @@ module Eval_constr = struct
           x')
         else x
       in
-      let ts : ((Var.var_id * float) list * float) list =
+      let ts : row list =
         List.init n_max ~f:(fun i ->
-          List.map t.coeffs ~f:(fun x -> (resize_coeffs x).(i)), (resize_data t.data).(i))
+          List.map t.coeffs ~f:(fun x -> (pad_coeffs x).(i)), (pad_data t.consts).(i))
       in
       ts
     ;;
@@ -309,20 +310,20 @@ module Eval_constr = struct
         let lhs = linearize_expr lhs in
         let rhs = linearize_expr rhs in
         let coeffs = (sub lhs rhs).coeffs in
-        let data = (sub rhs lhs).data in
-        expand { coeffs; data } |> List.map ~f:(fun x -> Equality x)
+        let consts = (sub rhs lhs).consts in
+        expand { coeffs; consts } |> List.map ~f:(fun x -> Equality x)
       | Le (lhs, rhs) ->
         let lhs = linearize_expr lhs in
         let rhs = linearize_expr rhs in
         let coeffs = (sub lhs rhs).coeffs in
-        let data = (sub rhs lhs).data in
-        expand { coeffs; data } |> List.map ~f:(fun x -> Inequality_lt x)
+        let consts = (sub rhs lhs).consts in
+        expand { coeffs; consts } |> List.map ~f:(fun x -> Inequality_le x)
       | Ge (lhs, rhs) ->
         let lhs = linearize_expr lhs in
         let rhs = linearize_expr rhs in
         let coeffs = (sub rhs lhs).coeffs in
-        let data = (sub lhs rhs).data in
-        expand { coeffs; data } |> List.map ~f:(fun x -> Inequality_lt x)
+        let consts = (sub lhs rhs).consts in
+        expand { coeffs; consts } |> List.map ~f:(fun x -> Inequality_le x)
     ;;
   end
 
