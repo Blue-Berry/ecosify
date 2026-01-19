@@ -133,22 +133,56 @@ module Eval = struct
   [@@deriving sexp_of]
 
   module Linear = struct
-    let scale : float -> coeff list -> coeff list =
-      fun s cs -> List.map cs ~f:(fun (id, c) -> id, s *. c)
-    ;;
+    module Atom = struct
+      let scale : float -> coeff list -> coeff list =
+        fun s cs -> List.map cs ~f:(fun (id, c) -> id, s *. c)
+      ;;
 
-    let merge : coeff list -> coeff list -> coeff list =
-      fun a b ->
-      let rec join coeffs ~acc =
+      let merge : coeff list -> coeff list -> coeff list =
+        fun a b ->
+        let rec join coeffs ~acc =
+          match coeffs with
+          | [] -> acc
+          | x :: x' :: xs when Int.(fst x = fst x') ->
+            join ((fst x, snd x +. snd x') :: xs) ~acc
+          | x :: xs -> join xs ~acc:(x :: acc)
+        in
+        let xs = a @ b |> List.sort ~compare:(fun (a, _) (b, _) -> Int.compare a b) in
+        join xs ~acc:[]
+      ;;
+    end
+
+    module Vec = struct
+      let pad_array ~default ~len x =
+        if Array.length x < len
+        then (
+          let x' = Array.create default ~len in
+          Array.blito ~src:x ~dst:x' ();
+          x')
+        else x
+      ;;
+
+      let rec join n_max (coeffs : coeff array list) ~(acc : coeff array list) =
+        let pad = pad_array ~default:(0, 0.) ~len:n_max in
         match coeffs with
         | [] -> acc
-        | x :: x' :: xs when Int.(fst x = fst x') ->
-          join ((fst x, snd x +. snd x') :: xs) ~acc
-        | x :: xs -> join xs ~acc:(x :: acc)
-      in
-      let xs = a @ b |> List.sort ~compare:(fun (a, _) (b, _) -> Int.compare a b) in
-      join xs ~acc:[]
-    ;;
+        | x :: x1 :: xs when Int.(fst x.(0) = fst x1.(0)) ->
+          let x = pad x in
+          let x1 = pad x1 in
+          let x' =
+            Array.map2_exn x x1 ~f:(fun (id1, coeff1) (id2, coeff2) ->
+              if Int.(id1 <> id2)
+              then
+                failwith
+                  [%string
+                    "Vec.add: mismatched variable ids during coefficient merge: \
+                     %{id1#Int} <> %{id2#Int}"]
+              else id1, coeff1 +. coeff2)
+          in
+          join n_max (x' :: xs) ~acc
+        | x :: xs -> join n_max xs ~acc:(x :: acc)
+      ;;
+    end
   end
 
   module Constr = struct
@@ -163,11 +197,11 @@ module Eval = struct
       let of_const c = { coeffs = []; const = c }
 
       let scale s { coeffs; const } =
-        { coeffs = Linear.scale s coeffs; const = s *. const }
+        { coeffs = Linear.Atom.scale s coeffs; const = s *. const }
       ;;
 
       let add (xs : t) (ys : t) =
-        { coeffs = Linear.merge xs.coeffs ys.coeffs; const = xs.const +. ys.const }
+        { coeffs = Linear.Atom.merge xs.coeffs ys.coeffs; const = xs.const +. ys.const }
       ;;
 
       let sub l r = add l (scale (-1.) r)
@@ -211,15 +245,6 @@ module Eval = struct
            |> Array.length)
       ;;
 
-      let pad_array ~default ~len x =
-        if Array.length x < len
-        then (
-          let x' = Array.create default ~len in
-          Array.blito ~src:x ~dst:x' ();
-          x')
-        else x
-      ;;
-
       let of_var (v : Var.atom Var.t array) =
         { coeffs =
             [ Array.map v ~f:(function
@@ -241,30 +266,10 @@ module Eval = struct
 
       let add ws (xs : t) (ys : t) =
         let n_max = !(ws.vars) in
-        let pad = pad_array ~default:(0, 0.) ~len:n_max in
-        let rec join (coeffs : coeff array list) ~(acc : coeff array list) =
-          match coeffs with
-          | [] -> acc
-          | x :: x1 :: xs when Int.(fst x.(0) = fst x1.(0)) ->
-            let x = pad x in
-            let x1 = pad x1 in
-            let x' =
-              Array.map2_exn x x1 ~f:(fun (id1, coeff1) (id2, coeff2) ->
-                if Int.(id1 <> id2)
-                then
-                  failwith
-                    [%string
-                      "Vec.add: mismatched variable ids during coefficient merge: \
-                       %{id1#Int} <> %{id2#Int}"]
-                else id1, coeff1 +. coeff2)
-            in
-            join (x' :: xs) ~acc
-          | x :: xs -> join xs ~acc:(x :: acc)
-        in
         let coeffs : coeff array list =
           xs.coeffs @ ys.coeffs
           |> List.sort ~compare:(fun a b -> Int.compare (fst a.(0)) (fst b.(0)))
-          |> join ~acc:[]
+          |> Linear.Vec.join n_max ~acc:[]
         in
         if Array.length xs.consts = Array.length ys.consts
         then
@@ -292,8 +297,8 @@ module Eval = struct
 
       let expand (t : t) : row list =
         let n_max = max_length t in
-        let pad_coeffs = pad_array ~default:(0, 0.) ~len:n_max in
-        let consts = pad_array ~default:0. ~len:n_max t.consts in
+        let pad_coeffs = Linear.Vec.pad_array ~default:(0, 0.) ~len:n_max in
+        let consts = Linear.Vec.pad_array ~default:0. ~len:n_max t.consts in
         List.init n_max ~f:(fun i ->
           List.map t.coeffs ~f:(fun x -> (pad_coeffs x).(i)), consts.(i))
       ;;
@@ -319,8 +324,8 @@ module Eval = struct
       type t = coeff list
 
       let of_var id : t = [ id, 1. ]
-      let scale = Linear.scale
-      let add = Linear.merge
+      let scale = Linear.Atom.scale
+      let add = Linear.Atom.merge
       let sub l r = add l (scale (-1.) r)
 
       let rec of_expr : Var.atom expr -> t = function
@@ -339,15 +344,6 @@ module Eval = struct
     module Vec = struct
       type t = coeff array list
 
-      let pad_array ~default ~len x =
-        if Array.length x < len
-        then (
-          let x' = Array.create default ~len in
-          Array.blito ~src:x ~dst:x' ();
-          x')
-        else x
-      ;;
-
       let of_var (v : Var.atom Var.t array) : t =
         [ Array.map v ~f:(function
             | Var.Vec _ -> failwith "Not possible"
@@ -361,30 +357,10 @@ module Eval = struct
 
       let add ws (xs : t) (ys : t) =
         let n_max = !(ws.vars) in
-        let pad = pad_array ~default:(0, 0.) ~len:n_max in
-        let rec join (coeffs : coeff array list) ~(acc : coeff array list) =
-          match coeffs with
-          | [] -> acc
-          | x :: x1 :: xs when Int.(fst x.(0) = fst x1.(0)) ->
-            let x = pad x in
-            let x1 = pad x1 in
-            let x' =
-              Array.map2_exn x x1 ~f:(fun (id1, coeff1) (id2, coeff2) ->
-                if Int.(id1 <> id2)
-                then
-                  failwith
-                    [%string
-                      "Vec.add: mismatched variable ids during coefficient merge: \
-                       %{id1#Int} <> %{id2#Int}"]
-                else id1, coeff1 +. coeff2)
-            in
-            join (x' :: xs) ~acc
-          | x :: xs -> join xs ~acc:(x :: acc)
-        in
         let coeffs : t =
           xs @ ys
           |> List.sort ~compare:(fun a b -> Int.compare (fst a.(0)) (fst b.(0)))
-          |> join ~acc:[]
+          |> Linear.Vec.join n_max ~acc:[]
         in
         coeffs
       ;;
@@ -405,7 +381,7 @@ module Eval = struct
 
       let expand ws (t : t) =
         let n_max = !(ws.vars) in
-        let pad_coeffs = pad_array ~default:(0, 0.) ~len:n_max in
+        let pad_coeffs = Linear.Vec.pad_array ~default:(0, 0.) ~len:n_max in
         List.init n_max ~f:(fun i -> List.map t ~f:(fun x -> (pad_coeffs x).(i)))
         |> List.concat
       ;;
