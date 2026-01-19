@@ -123,7 +123,18 @@ let add_cost : type a. a expr -> affine_expr =
 
 let const_of_list xs = Data (Array.of_list xs)
 
-module Eval = struct
+module Eval : sig
+  type coeff = int * float
+  type row = coeff list * float
+
+  type t =
+    | Equality of row
+    | Inequality_le of row
+    | Cost of coeff list
+
+  val sexp_of_t : t -> Sexplib0.Sexp.t
+  val of_affine_expr : ws -> affine_expr -> t list
+end = struct
   type coeff = Var.var_id * float [@@deriving sexp_of]
   type row = coeff list * float [@@deriving sexp_of]
 
@@ -390,7 +401,7 @@ module Eval = struct
     end
   end
 
-  let eval_constr ws cs =
+  let of_affine_expr ws cs =
     match cs with
     | Constr_atom c -> [ Constr.Atom.eval_constr c ]
     | Constr_vec cs -> Constr.Vec.eval ws cs
@@ -468,7 +479,7 @@ type ecos_params =
 
 let get_params (ws : ws) =
   let constrs =
-    List.map ws.affine_exprs ~f:(fun e -> Eval.eval_constr ws e) |> List.concat
+    List.map ws.affine_exprs ~f:(fun e -> Eval.of_affine_expr ws e) |> List.concat
   in
   let n = !(ws.vars) in
   let set = Constr_Set.create ws constrs in

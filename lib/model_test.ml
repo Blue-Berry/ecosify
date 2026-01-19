@@ -109,7 +109,7 @@ let%expect_test "linearised equality" =
   let l = Const 10. in
   let open Infix in
   let a = x1 + (2. * (x2 + x3)) + (2. * x1) == l in
-  Eval.eval_constr ws a |> List.sexp_of_t Eval.sexp_of_t |> print_s;
+  Eval.of_affine_expr ws a |> List.sexp_of_t Eval.sexp_of_t |> print_s;
   [%expect {| ((Equality (((3 2) (2 2) (1 3)) 10))) |}]
 ;;
 
@@ -121,7 +121,7 @@ let%expect_test "linearised equality" =
   let x3 = variable ws in
   let open Infix in
   let a = x1 + (2. * x3) + (2. * x1) == x2 in
-  Eval.eval_constr ws a |> List.sexp_of_t Eval.sexp_of_t |> print_s;
+  Eval.of_affine_expr ws a |> List.sexp_of_t Eval.sexp_of_t |> print_s;
   [%expect {| ((Equality (((3 2) (2 -1) (1 3)) -0))) |}]
 ;;
 
@@ -134,7 +134,7 @@ let%expect_test "linearised inequality" =
   let l = Const 10. in
   let open Infix in
   let a = x1 + (2. * (x2 + x3)) + (2. * x1) <= l in
-  Eval.eval_constr ws a |> List.sexp_of_t Eval.sexp_of_t |> print_s;
+  Eval.of_affine_expr ws a |> List.sexp_of_t Eval.sexp_of_t |> print_s;
   [%expect {| ((Inequality_le (((3 2) (2 2) (1 3)) 10))) |}]
 ;;
 
@@ -147,7 +147,7 @@ let%expect_test "linearised inequality 2" =
   let l = Const 10. in
   let open Infix in
   let a = x1 + (2. * (x2 + x3)) + (2. * x1) >= l in
-  Eval.eval_constr ws a |> List.sexp_of_t Eval.sexp_of_t |> print_s;
+  Eval.of_affine_expr ws a |> List.sexp_of_t Eval.sexp_of_t |> print_s;
   [%expect {| ((Inequality_le (((3 -2) (2 -2) (1 -3)) -10))) |}]
 ;;
 
@@ -160,7 +160,7 @@ let%expect_test "linearised equality 2" =
   let g = const_of_list [ 1.; 2.; 3.; 4.; 5.; 6.; 7.; 8.; 9.; 10. ] in
   let open Infix in
   let a = 3. * ((2. * x1) + x2 + x3) == g in
-  Eval.eval_constr ws a |> List.sexp_of_t Eval.sexp_of_t |> print_s;
+  Eval.of_affine_expr ws a |> List.sexp_of_t Eval.sexp_of_t |> print_s;
   [%expect
     {|
     ((Equality (((20 3) (10 3) (1 6)) 1)) (Equality (((21 3) (11 3) (2 6)) 2))
@@ -179,7 +179,7 @@ let%expect_test "linearised equality 3" =
   let x3 = variables ws 10 in
   let open Infix in
   let a = 3. * ((2. * x1) + x3) == x2 in
-  Eval.eval_constr ws a |> List.sexp_of_t Eval.sexp_of_t |> print_s;
+  Eval.of_affine_expr ws a |> List.sexp_of_t Eval.sexp_of_t |> print_s;
   [%expect
     {|
     ((Equality (((21 3) (11 -1) (1 6)) 0)) (Equality (((22 3) (12 -1) (2 6)) 0))
@@ -199,7 +199,7 @@ let%expect_test "create vec matrices" =
   let x3 = variables ws 10 in
   let open Infix in
   let a = 3. * ((2. * x1) + x3) == x2 in
-  Eval.eval_constr ws a |> Constr_Set.create ws |> Constr_Set.sexp_of_t |> print_s;
+  Eval.of_affine_expr ws a |> Constr_Set.create ws |> Constr_Set.sexp_of_t |> print_s;
   [%expect
     {|
     ((a
@@ -227,7 +227,7 @@ let%expect_test "matrices" =
   let l = Const 10. in
   let open Infix in
   let a = x1 + (2. * (x2 + x3)) + (2. * x1) >= l in
-  Eval.eval_constr ws a |> Constr_Set.create ws |> Constr_Set.sexp_of_t |> print_s;
+  Eval.of_affine_expr ws a |> Constr_Set.create ws |> Constr_Set.sexp_of_t |> print_s;
   [%expect {| ((a ()) (b ()) (g ((-3 -2 -2))) (h (-10)) (c (0 0 0))) |}]
 ;;
 
@@ -239,7 +239,7 @@ let%expect_test "Cost" =
   let x3 = variable ws in
   let open Infix in
   let a = add_cost (x1 + x2 + x3) in
-  Eval.eval_constr ws a |> Constr_Set.create ws |> Constr_Set.sexp_of_t |> print_s;
+  Eval.of_affine_expr ws a |> Constr_Set.create ws |> Constr_Set.sexp_of_t |> print_s;
   [%expect {| ((a ()) (b ()) (g ()) (h ()) (c (1 1 1))) |}]
 ;;
 
@@ -251,7 +251,7 @@ let%expect_test "create vec matrices" =
   let x3 = variables ws 10 in
   let open Infix in
   let a = add_cost (x1 - x2 + x3) in
-  Eval.eval_constr ws a |> Constr_Set.create ws |> Constr_Set.sexp_of_t |> print_s;
+  Eval.of_affine_expr ws a |> Constr_Set.create ws |> Constr_Set.sexp_of_t |> print_s;
   [%expect
     {|
     ((a ()) (b ()) (g ()) (h ())
