@@ -122,7 +122,7 @@ let%expect_test "linearised equality" =
   let open Infix in
   let a = x1 + (2. * x3) + (2. * x1) == x2 in
   Eval_constr.eval_constr a |> List.sexp_of_t Eval_constr.sexp_of_t |> print_s;
-  [%expect {| ((Equality (((3 2) (2 -1) (1 3)) 0))) |}]
+  [%expect {| ((Equality (((3 2) (2 -1) (1 3)) -0))) |}]
 ;;
 
 let%expect_test "linearised inequality" =
@@ -151,7 +151,7 @@ let%expect_test "linearised inequality 2" =
   [%expect {| ((Inequality_le (((3 -2) (2 -2) (1 -3)) -10))) |}]
 ;;
 
-let%expect_test "linearised inequality 2" =
+let%expect_test "linearised equality 2" =
   let open Model in
   let ws = new_ws () in
   let x1 = variables ws 9 in
@@ -171,20 +171,48 @@ let%expect_test "linearised inequality 2" =
     |}]
 ;;
 
-let%expect_test "linearised inequality 2" =
+let%expect_test "linearised equality 3" =
   let open Model in
   let ws = new_ws () in
   let x1 = variables ws 10 in
   let x2 = variables ws 10 in
   let x3 = variables ws 10 in
   let open Infix in
-  let a = 3. * ((2. * x1) + x2 + x3) == x2 in
+  let a = 3. * ((2. * x1) + x3) == x2 in
   Eval_constr.eval_constr a |> List.sexp_of_t Eval_constr.sexp_of_t |> print_s;
-  [%expect {|
-    ((Equality (((21 3) (11 2) (1 6)) 0)) (Equality (((22 3) (12 2) (2 6)) 0))
-     (Equality (((23 3) (13 2) (3 6)) 0)) (Equality (((24 3) (14 2) (4 6)) 0))
-     (Equality (((25 3) (15 2) (5 6)) 0)) (Equality (((26 3) (16 2) (6 6)) 0))
-     (Equality (((27 3) (17 2) (7 6)) 0)) (Equality (((28 3) (18 2) (8 6)) 0))
-     (Equality (((29 3) (19 2) (9 6)) 0)) (Equality (((30 3) (20 2) (10 6)) 0)))
+  [%expect
+    {|
+    ((Equality (((21 3) (11 -1) (1 6)) 0)) (Equality (((22 3) (12 -1) (2 6)) 0))
+     (Equality (((23 3) (13 -1) (3 6)) 0)) (Equality (((24 3) (14 -1) (4 6)) 0))
+     (Equality (((25 3) (15 -1) (5 6)) 0)) (Equality (((26 3) (16 -1) (6 6)) 0))
+     (Equality (((27 3) (17 -1) (7 6)) 0)) (Equality (((28 3) (18 -1) (8 6)) 0))
+     (Equality (((29 3) (19 -1) (9 6)) 0))
+     (Equality (((30 3) (20 -1) (10 6)) 0)))
+    |}]
+;;
+
+let%expect_test "create matrices" =
+  let open Model in
+  let ws = new_ws () in
+  let x1 = variables ws 10 in
+  let x2 = variables ws 10 in
+  let x3 = variables ws 10 in
+  let open Infix in
+  let a = 3. * ((2. * x1) + x3) == x2 in
+  Eval_constr.eval_constr a |> Constr_Set.create |> Constr_Set.sexp_of_t |> print_s;
+  [%expect
+    {|
+    ((a
+      ((0 0 0 0 0 0 0 0 0 6 0 0 0 0 0 0 0 0 0 -1 0 0 0 0 0 0 0 0 0 3)
+       (0 0 0 0 0 0 0 0 6 0 0 0 0 0 0 0 0 0 -1 0 0 0 0 0 0 0 0 0 3 0)
+       (0 0 0 0 0 0 0 6 0 0 0 0 0 0 0 0 0 -1 0 0 0 0 0 0 0 0 0 3 0 0)
+       (0 0 0 0 0 0 6 0 0 0 0 0 0 0 0 0 -1 0 0 0 0 0 0 0 0 0 3 0 0 0)
+       (0 0 0 0 0 6 0 0 0 0 0 0 0 0 0 -1 0 0 0 0 0 0 0 0 0 3 0 0 0 0)
+       (0 0 0 0 6 0 0 0 0 0 0 0 0 0 -1 0 0 0 0 0 0 0 0 0 3 0 0 0 0 0)
+       (0 0 0 6 0 0 0 0 0 0 0 0 0 -1 0 0 0 0 0 0 0 0 0 3 0 0 0 0 0 0)
+       (0 0 6 0 0 0 0 0 0 0 0 0 -1 0 0 0 0 0 0 0 0 0 3 0 0 0 0 0 0 0)
+       (0 6 0 0 0 0 0 0 0 0 0 -1 0 0 0 0 0 0 0 0 0 3 0 0 0 0 0 0 0 0)
+       (6 0 0 0 0 0 0 0 0 0 -1 0 0 0 0 0 0 0 0 0 3 0 0 0 0 0 0 0 0 0)))
+     (b (0 0 0 0 0 0 0 0 0 0)) (g ()) (h ()))
     |}]
 ;;

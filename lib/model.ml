@@ -164,25 +164,17 @@ module Eval_constr = struct
       | Data _ -> failwith "Can't linearise vec"
     ;;
 
-    let eval_constr = function
-      | Eq (lhs, rhs) ->
-        let lhs = linearize_expr lhs in
-        let rhs = linearize_expr rhs in
-        let coeffs = (sub lhs rhs).coeffs in
-        let const = (sub rhs lhs).const in
-        Equality (coeffs, const)
-      | Le (lhs, rhs) ->
-        let lhs = linearize_expr lhs in
-        let rhs = linearize_expr rhs in
-        let coeffs = (sub lhs rhs).coeffs in
-        let const = (sub rhs lhs).const in
-        Inequality_le (coeffs, const)
-      | Ge (lhs, rhs) ->
-        let lhs = linearize_expr lhs in
-        let rhs = linearize_expr rhs in
-        let coeffs = (sub rhs lhs).coeffs in
-        let const = (sub lhs rhs).const in
-        Inequality_le (coeffs, const)
+    let eval_constr constr =
+      let lhs_expr, rhs_expr, wrap =
+        match constr with
+        | Eq (l, r) -> l, r, fun x -> Equality x
+        | Le (l, r) -> l, r, fun x -> Inequality_le x
+        | Ge (l, r) -> r, l, fun x -> Inequality_le x
+      in
+      let lhs = linearize_expr lhs_expr in
+      let rhs = linearize_expr rhs_expr in
+      let diff = sub lhs rhs in
+      wrap (diff.coeffs, ~-.(diff.const))
     ;;
   end
 
@@ -191,6 +183,24 @@ module Eval_constr = struct
       { coeffs : coeff array list
       ; consts : float array
       }
+
+    let max_length { coeffs; consts } =
+      max
+        (Array.length consts)
+        (List.max_elt coeffs ~compare:(fun a b ->
+           Int.compare (Array.length a) (Array.length b))
+         |> Option.value ~default:[||]
+         |> Array.length)
+    ;;
+
+    let pad_array ~default ~len x =
+      if Array.length x < len
+      then (
+        let x' = Array.create default ~len in
+        Array.blito ~src:x ~dst:x' ();
+        x')
+      else x
+    ;;
 
     let of_var (v : Var.atom Var.t array) =
       { coeffs =
@@ -211,27 +221,8 @@ module Eval_constr = struct
     ;;
 
     let add (xs : t) (ys : t) =
-      let n_max =
-        max (Array.length xs.consts) (Array.length ys.consts)
-        |> max
-             (List.max_elt xs.coeffs ~compare:(fun a b ->
-                Int.compare (Array.length a) (Array.length b))
-              |> Option.value ~default:[||]
-              |> Array.length)
-        |> max
-             (List.max_elt ys.coeffs ~compare:(fun a b ->
-                Int.compare (Array.length a) (Array.length b))
-              |> Option.value ~default:[||]
-              |> Array.length)
-      in
-      let pad x =
-        if Array.length x < n_max
-        then (
-          let x' = Array.create (0, 0.) ~len:n_max in
-          Array.blito ~src:x ~dst:x' ();
-          x')
-        else x
-      in
+      let n_max = max (max_length xs) (max_length ys) in
+      let pad = pad_array ~default:(0, 0.) ~len:n_max in
       let rec join (coeffs : coeff array list) ~(acc : coeff array list) =
         match coeffs with
         | [] -> acc
@@ -240,8 +231,13 @@ module Eval_constr = struct
           let x1 = pad x1 in
           let x' =
             Array.map2_exn x x1 ~f:(fun (id1, coeff1) (id2, coeff2) ->
-              assert (Int.(id1 = id2));
-              id1, coeff1 +. coeff2)
+              if Int.(id1 <> id2)
+              then
+                failwith
+                  [%string
+                    "Vec.add: mismatched variable ids during coefficient merge: \
+                     %{id1#Int} <> %{id2#Int}"]
+              else id1, coeff1 +. coeff2)
           in
           join (x' :: xs) ~acc
         | x :: xs -> join xs ~acc:(x :: acc)
@@ -273,62 +269,77 @@ module Eval_constr = struct
     ;;
 
     let expand (t : t) : row list =
-      let n_max =
-        max
-          (Array.length t.consts)
-          (List.max_elt t.coeffs ~compare:(fun a b ->
-             Int.compare (Array.length a) (Array.length b))
-           |> Option.value ~default:[||]
-           |> Array.length)
-      in
-      let pad_coeffs x =
-        if Array.length x < n_max
-        then (
-          let x' = Array.create (0, 0.) ~len:n_max in
-          Array.blito ~src:x ~dst:x' ();
-          x')
-        else x
-      in
-      let pad_data x =
-        if Array.length x < n_max
-        then (
-          let x' = Array.create 0. ~len:n_max in
-          Array.blito ~src:x ~dst:x' ();
-          x')
-        else x
-      in
-      let ts : row list =
-        List.init n_max ~f:(fun i ->
-          List.map t.coeffs ~f:(fun x -> (pad_coeffs x).(i)), (pad_data t.consts).(i))
-      in
-      ts
+      let n_max = max_length t in
+      let pad_coeffs = pad_array ~default:(0, 0.) ~len:n_max in
+      let consts = pad_array ~default:0. ~len:n_max t.consts in
+      List.init n_max ~f:(fun i ->
+        List.map t.coeffs ~f:(fun x -> (pad_coeffs x).(i)), consts.(i))
     ;;
 
-    let eval_constr (c : Var.vec constr) =
-      match c with
-      | Eq (lhs, rhs) ->
-        let lhs = linearize_expr lhs in
-        let rhs = linearize_expr rhs in
-        let coeffs = (sub lhs rhs).coeffs in
-        let consts = (sub rhs lhs).consts in
-        expand { coeffs; consts } |> List.map ~f:(fun x -> Equality x)
-      | Le (lhs, rhs) ->
-        let lhs = linearize_expr lhs in
-        let rhs = linearize_expr rhs in
-        let coeffs = (sub lhs rhs).coeffs in
-        let consts = (sub rhs lhs).consts in
-        expand { coeffs; consts } |> List.map ~f:(fun x -> Inequality_le x)
-      | Ge (lhs, rhs) ->
-        let lhs = linearize_expr lhs in
-        let rhs = linearize_expr rhs in
-        let coeffs = (sub rhs lhs).coeffs in
-        let consts = (sub lhs rhs).consts in
-        expand { coeffs; consts } |> List.map ~f:(fun x -> Inequality_le x)
+    let eval_constr constr =
+      let lhs_expr, rhs_expr, wrap =
+        match constr with
+        | Eq (l, r) -> l, r, fun x -> Equality x
+        | Le (l, r) -> l, r, fun x -> Inequality_le x
+        | Ge (l, r) -> r, l, fun x -> Inequality_le x
+      in
+      let lhs = linearize_expr lhs_expr in
+      let rhs = linearize_expr rhs_expr in
+      let diff = sub lhs rhs in
+      expand { coeffs = diff.coeffs; consts = Array.map diff.consts ~f:Float.neg }
+      |> List.map ~f:wrap
     ;;
   end
 
   let eval_constr = function
     | Constr_atom c -> [ Atom.eval_constr c ]
     | Constr_vec cs -> Vec.eval_constr cs
+  ;;
+end
+
+module Constr_Set = struct
+  type a = float array array [@@deriving sexp_of]
+  type b = float array [@@deriving sexp_of]
+  type g = float array array [@@deriving sexp_of]
+  type h = float array [@@deriving sexp_of]
+
+  type t =
+    { a : a
+    ; b : b
+    ; g : g
+    ; h : h
+    }
+  [@@deriving sexp_of]
+
+  let create_matrix (rows : Eval_constr.coeff list list) =
+    let n_rows = List.length rows in
+    (* NOTE: What if they are all the same, what does it return *)
+    let n_cols =
+      List.map rows ~f:(fun row -> List.map row ~f:(fun (idx, _) -> idx))
+      |> List.concat_no_order
+      |> List.max_elt ~compare:Int.compare
+      |> Option.value ~default:0
+    in
+    let m = Array.make_matrix ~dimx:n_rows ~dimy:n_cols 0. in
+    List.iteri rows ~f:(fun i row ->
+      List.iteri row ~f:(fun _ (idx, coeff) -> m.(i).(idx - 1) <- coeff));
+    m
+  ;;
+
+  let create (constrs : Eval_constr.t list) : t =
+    let rec aux (constrs : Eval_constr.t list) a b g h =
+      match constrs with
+      | [] -> a, b, g, h
+      | Eval_constr.Equality (coeffs, const) :: constrs ->
+        aux constrs (coeffs :: a) (const :: b) g h
+      | Eval_constr.Inequality_le (coeffs, const) :: constrs ->
+        aux constrs a b (coeffs :: g) (const :: h)
+    in
+    let a, b, g, h = aux constrs [] [] [] [] in
+    let a = create_matrix a in
+    let g = create_matrix g in
+    let b = Array.of_list b in
+    let h = Array.of_list h in
+    { a; b; g; h }
   ;;
 end
