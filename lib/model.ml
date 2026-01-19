@@ -132,6 +132,7 @@ module Eval = struct
     | Cost of coeff list
   [@@deriving sexp_of]
 
+  (* TODO: duplicated coefficient code in cost and constraints *)
   module Atom = struct
     type t =
       { coeffs : coeff list
@@ -455,7 +456,7 @@ module Constr_Set = struct
 
   let create_cost (ws : ws) (coeffs : Eval.coeff list) : c =
     let n = !(ws.vars) in
-    let find_coeff i = List.find coeffs ~f:(fun (idx, _) -> Int.(i = idx)) in
+    let find_coeff i = List.find coeffs ~f:(fun (idx, _) -> Int.(i + 1 = idx)) in
     Array.init n ~f:(fun i -> find_coeff i |> Option.value ~default:(0, 0.) |> snd)
   ;;
 

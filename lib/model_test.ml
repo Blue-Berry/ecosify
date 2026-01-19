@@ -239,3 +239,15 @@ let%expect_test "matrices" =
   Eval.eval_constr ws a |> Constr_Set.create ws |> Constr_Set.sexp_of_t |> print_s;
   [%expect {| ((a ()) (b ()) (g ((-3 -2 -2))) (h (-10)) (c (0 0 0))) |}]
 ;;
+
+let%expect_test "Cost" =
+  let open Model in
+  let ws = new_ws () in
+  let x1 = variable ws in
+  let x2 = variable ws in
+  let x3 = variable ws in
+  let open Infix in
+  let a = add_cost (x1 + x2 + x3) in
+  Eval.eval_constr ws a |> Constr_Set.create ws |> Constr_Set.sexp_of_t |> print_s;
+  [%expect {| ((a ()) (b ()) (g ()) (h ()) (c (1 1 1))) |}]
+;;
