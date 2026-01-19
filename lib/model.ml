@@ -41,9 +41,11 @@ type 'a constr =
   | Ge of 'a expr * 'a expr
 [@@deriving sexp_of]
 
-type constr_packed =
-  | Constr_vec : Var.vec constr -> constr_packed
-  | Constr_atom : Var.atom constr -> constr_packed
+type affine_expr =
+  | Constr_vec : Var.vec constr -> affine_expr
+  | Constr_atom : Var.atom constr -> affine_expr
+  | Cost_atom : Var.atom expr -> affine_expr
+  | Cost_vec : Var.vec expr -> affine_expr
 [@@deriving sexp_of]
 
 let rec witness_of_expr : type a. a expr -> a Var.witness = function
@@ -55,7 +57,7 @@ let rec witness_of_expr : type a. a expr -> a Var.witness = function
   | Data _ -> Var.Vec_wit
 ;;
 
-let pack_contr : type a. a Var.witness -> a constr -> constr_packed =
+let pack_contr : type a. a Var.witness -> a constr -> affine_expr =
   fun witness constr ->
   match witness with
   | Atom_wit -> Constr_atom constr
@@ -63,15 +65,15 @@ let pack_contr : type a. a Var.witness -> a constr -> constr_packed =
 ;;
 
 module Infix = struct
-  let ( == ) : type a. a expr -> a expr -> constr_packed =
+  let ( == ) : type a. a expr -> a expr -> affine_expr =
     fun l r -> pack_contr (witness_of_expr l) (Eq (l, r))
   ;;
 
-  let ( <= ) : type a. a expr -> a expr -> constr_packed =
+  let ( <= ) : type a. a expr -> a expr -> affine_expr =
     fun l r -> pack_contr (witness_of_expr l) (Le (l, r))
   ;;
 
-  let ( >= ) : type a. a expr -> a expr -> constr_packed =
+  let ( >= ) : type a. a expr -> a expr -> affine_expr =
     fun l r -> pack_contr (witness_of_expr l) (Ge (l, r))
   ;;
 
@@ -94,10 +96,10 @@ end
 
 type ws =
   { vars : int ref
-  ; mutable constraints : constr_packed list
+  ; mutable affine_exprs : affine_expr list
   }
 
-let new_ws : unit -> ws = fun () -> { vars = ref 0; constraints = [] }
+let new_ws : unit -> ws = fun () -> { vars = ref 0; affine_exprs = [] }
 
 let variable ws =
   incr ws.vars;
@@ -112,15 +114,22 @@ let variables ws size =
           Var.Atom !(ws.vars))))
 ;;
 
+let add_cost e : affine_expr =
+  match witness_of_expr e with
+  | Var.Atom_wit -> Cost_atom e
+  | Var.Vec_wit -> Cost_vec e
+;;
+
 let const_of_list xs = Data (Array.of_list xs)
 
-module Eval_constr = struct
+module Eval = struct
   type coeff = Var.var_id * float [@@deriving sexp_of]
   type row = coeff list * float [@@deriving sexp_of]
 
   type t =
     | Equality of row
     | Inequality_le of row
+    | Cost of coeff list
   [@@deriving sexp_of]
 
   module Atom = struct
@@ -154,12 +163,12 @@ module Eval_constr = struct
 
     let sub l r = add l (scale (-1.) r)
 
-    let rec linearize_expr : Var.atom expr -> t = function
+    let rec of_expr : Var.atom expr -> t = function
       | Var (Var.Atom id) -> of_var id
       | Const c -> of_const c
-      | Add (l, r) -> add (linearize_expr l) (linearize_expr r)
-      | Sub (l, r) -> sub (linearize_expr l) (linearize_expr r)
-      | Mul (s, e) -> scale s (linearize_expr e)
+      | Add (l, r) -> add (of_expr l) (of_expr r)
+      | Sub (l, r) -> sub (of_expr l) (of_expr r)
+      | Mul (s, e) -> scale s (of_expr e)
       | Var (Var.Vec _) -> failwith "Can't linearise vec"
       | Data _ -> failwith "Can't linearise vec"
     ;;
@@ -171,8 +180,8 @@ module Eval_constr = struct
         | Le (l, r) -> l, r, fun x -> Inequality_le x
         | Ge (l, r) -> r, l, fun x -> Inequality_le x
       in
-      let lhs = linearize_expr lhs_expr in
-      let rhs = linearize_expr rhs_expr in
+      let lhs = of_expr lhs_expr in
+      let rhs = of_expr rhs_expr in
       let diff = sub lhs rhs in
       wrap (diff.coeffs, ~-.(diff.const))
     ;;
@@ -220,8 +229,8 @@ module Eval_constr = struct
       }
     ;;
 
-    let add (xs : t) (ys : t) =
-      let n_max = max (max_length xs) (max_length ys) in
+    let add ws (xs : t) (ys : t) =
+      let n_max = !(ws.vars) in
       let pad = pad_array ~default:(0, 0.) ~len:n_max in
       let rec join (coeffs : coeff array list) ~(acc : coeff array list) =
         match coeffs with
@@ -258,12 +267,14 @@ module Eval_constr = struct
 
     let sub l r = add l (scale (-1.) r)
 
-    let rec linearize_expr : Var.vec expr -> t = function
+    let rec of_expr : ws -> Var.vec expr -> t =
+      fun ws e ->
+      match e with
       | Var (Var.Vec id) -> of_var id
       | Data d -> of_data d
-      | Add (l, r) -> add (linearize_expr l) (linearize_expr r)
-      | Sub (l, r) -> sub (linearize_expr l) (linearize_expr r)
-      | Mul (s, e) -> scale s (linearize_expr e)
+      | Add (l, r) -> add ws (of_expr ws l) (of_expr ws r)
+      | Sub (l, r) -> sub ws (of_expr ws l) (of_expr ws r)
+      | Mul (s, e) -> scale s (of_expr ws e)
       | Var (Var.Atom _) -> failwith "Can't linearise Atom as Vec"
       | Const _ -> failwith "Can't linearise Atom as Vec"
     ;;
@@ -276,24 +287,143 @@ module Eval_constr = struct
         List.map t.coeffs ~f:(fun x -> (pad_coeffs x).(i)), consts.(i))
     ;;
 
-    let eval_constr constr =
+    let eval ws constr =
       let lhs_expr, rhs_expr, wrap =
         match constr with
         | Eq (l, r) -> l, r, fun x -> Equality x
         | Le (l, r) -> l, r, fun x -> Inequality_le x
         | Ge (l, r) -> r, l, fun x -> Inequality_le x
       in
-      let lhs = linearize_expr lhs_expr in
-      let rhs = linearize_expr rhs_expr in
-      let diff = sub lhs rhs in
+      let lhs = of_expr ws lhs_expr in
+      let rhs = of_expr ws rhs_expr in
+      let diff = sub ws lhs rhs in
       expand { coeffs = diff.coeffs; consts = Array.map diff.consts ~f:Float.neg }
       |> List.map ~f:wrap
     ;;
   end
 
-  let eval_constr = function
+  module Cost = struct
+    module Atom = struct
+      type t = coeff list
+
+      let of_var id : t = [ id, 1. ]
+      let scale s (t : t) = List.map t ~f:(fun (id, coeff) -> id, coeff *. s)
+
+      let add (xs : t) (ys : t) =
+        let rec join coeffs ~acc =
+          match coeffs with
+          | [] -> acc
+          | x :: x' :: xs when Int.(fst x = fst x') ->
+            join ((fst x, snd x +. snd x') :: xs) ~acc
+          | x :: xs -> join xs ~acc:(x :: acc)
+        in
+        let coeffs =
+          xs @ ys
+          |> List.sort ~compare:(fun (a, _) (b, _) -> Int.compare a b)
+          |> join ~acc:[]
+        in
+        coeffs
+      ;;
+
+      let sub l r = add l (scale (-1.) r)
+
+      let rec of_expr : Var.atom expr -> t = function
+        | Var (Var.Atom id) -> of_var id
+        | Const _ -> failwith "Can't have a constant in a cost function"
+        | Add (l, r) -> add (of_expr l) (of_expr r)
+        | Sub (l, r) -> sub (of_expr l) (of_expr r)
+        | Mul (s, e) -> scale s (of_expr e)
+        | Var (Var.Vec _) -> failwith "Can't linearise vec"
+        | Data _ -> failwith "Can't linearise vec"
+      ;;
+
+      let eval e = Cost (of_expr e)
+    end
+
+    module Vec = struct
+      type t = coeff array list
+
+      let pad_array ~default ~len x =
+        if Array.length x < len
+        then (
+          let x' = Array.create default ~len in
+          Array.blito ~src:x ~dst:x' ();
+          x')
+        else x
+      ;;
+
+      let of_var (v : Var.atom Var.t array) : t =
+        [ Array.map v ~f:(function
+            | Var.Vec _ -> failwith "Not possible"
+            | Atom id -> id, 1.)
+        ]
+      ;;
+
+      let scale s coeffs =
+        List.map coeffs ~f:(fun v -> Array.map v ~f:(fun (id, c) -> id, c *. s))
+      ;;
+
+      let add ws (xs : t) (ys : t) =
+        let n_max = !(ws.vars) in
+        let pad = pad_array ~default:(0, 0.) ~len:n_max in
+        let rec join (coeffs : coeff array list) ~(acc : coeff array list) =
+          match coeffs with
+          | [] -> acc
+          | x :: x1 :: xs when Int.(fst x.(0) = fst x1.(0)) ->
+            let x = pad x in
+            let x1 = pad x1 in
+            let x' =
+              Array.map2_exn x x1 ~f:(fun (id1, coeff1) (id2, coeff2) ->
+                if Int.(id1 <> id2)
+                then
+                  failwith
+                    [%string
+                      "Vec.add: mismatched variable ids during coefficient merge: \
+                       %{id1#Int} <> %{id2#Int}"]
+                else id1, coeff1 +. coeff2)
+            in
+            join (x' :: xs) ~acc
+          | x :: xs -> join xs ~acc:(x :: acc)
+        in
+        let coeffs : t =
+          xs @ ys
+          |> List.sort ~compare:(fun a b -> Int.compare (fst a.(0)) (fst b.(0)))
+          |> join ~acc:[]
+        in
+        coeffs
+      ;;
+
+      let sub l r = add l (scale (-1.) r)
+
+      let rec of_expr : ws -> Var.vec expr -> t =
+        fun ws e ->
+        match e with
+        | Var (Var.Vec id) -> of_var id
+        | Data _ -> failwith "Can't use data in cost function"
+        | Add (l, r) -> add ws (of_expr ws l) (of_expr ws r)
+        | Sub (l, r) -> sub ws (of_expr ws l) (of_expr ws r)
+        | Mul (s, e) -> scale s (of_expr ws e)
+        | Var (Var.Atom _) -> failwith "Can't linearise Atom as Vec"
+        | Const _ -> failwith "Can't linearise Atom as Vec"
+      ;;
+
+      let expand ws (t : t) =
+        let n_max = !(ws.vars) in
+        let pad_coeffs = pad_array ~default:(0, 0.) ~len:n_max in
+        List.init n_max ~f:(fun i -> List.map t ~f:(fun x -> (pad_coeffs x).(i)))
+        |> List.concat
+      ;;
+
+      let eval ws e = Cost (of_expr ws e |> expand ws)
+    end
+  end
+
+  let eval_constr ws cs =
+    match cs with
     | Constr_atom c -> [ Atom.eval_constr c ]
-    | Constr_vec cs -> Vec.eval_constr cs
+    | Constr_vec cs -> Vec.eval ws cs
+    | Cost_atom e -> [ Cost.Atom.eval e ]
+    | Cost_vec e -> [ Cost.Vec.eval ws e ]
   ;;
 end
 
@@ -302,44 +432,83 @@ module Constr_Set = struct
   type b = float array [@@deriving sexp_of]
   type g = float array array [@@deriving sexp_of]
   type h = float array [@@deriving sexp_of]
+  type c = float array [@@deriving sexp_of]
 
   type t =
     { a : a
     ; b : b
     ; g : g
     ; h : h
+    ; c : c
     }
   [@@deriving sexp_of]
 
-  let create_matrix (rows : Eval_constr.coeff list list) =
+  let create_matrix (ws : ws) (rows : Eval.coeff list list) =
     let n_rows = List.length rows in
     (* NOTE: What if they are all the same, what does it return *)
-    let n_cols =
-      List.map rows ~f:(fun row -> List.map row ~f:(fun (idx, _) -> idx))
-      |> List.concat_no_order
-      |> List.max_elt ~compare:Int.compare
-      |> Option.value ~default:0
-    in
+    let n_cols = !(ws.vars) in
     let m = Array.make_matrix ~dimx:n_rows ~dimy:n_cols 0. in
     List.iteri rows ~f:(fun i row ->
       List.iteri row ~f:(fun _ (idx, coeff) -> m.(i).(idx - 1) <- coeff));
     m
   ;;
 
-  let create (constrs : Eval_constr.t list) : t =
-    let rec aux (constrs : Eval_constr.t list) a b g h =
+  let create_cost (ws : ws) (coeffs : Eval.coeff list) : c =
+    let n = !(ws.vars) in
+    let find_coeff i = List.find coeffs ~f:(fun (idx, _) -> Int.(i = idx)) in
+    Array.init n ~f:(fun i -> find_coeff i |> Option.value ~default:(0, 0.) |> snd)
+  ;;
+
+  let create ws (constrs : Eval.t list) : t =
+    let rec aux (constrs : Eval.t list) a b g h c =
       match constrs with
-      | [] -> a, b, g, h
-      | Eval_constr.Equality (coeffs, const) :: constrs ->
-        aux constrs (coeffs :: a) (const :: b) g h
-      | Eval_constr.Inequality_le (coeffs, const) :: constrs ->
-        aux constrs a b (coeffs :: g) (const :: h)
+      | [] -> a, b, g, h, c
+      | Eval.Equality (coeffs, const) :: constrs ->
+        aux constrs (coeffs :: a) (const :: b) g h c
+      | Eval.Inequality_le (coeffs, const) :: constrs ->
+        aux constrs a b (coeffs :: g) (const :: h) c
+      | Eval.Cost coeffs :: constrs -> aux constrs a b g h (coeffs :: c)
     in
-    let a, b, g, h = aux constrs [] [] [] [] in
-    let a = create_matrix a in
-    let g = create_matrix g in
+    let a, b, g, h, c = aux constrs [] [] [] [] [] in
+    let a = create_matrix ws a in
+    let g = create_matrix ws g in
     let b = Array.of_list b in
     let h = Array.of_list h in
-    { a; b; g; h }
+    let c = create_cost ws (List.concat c) in
+    { a; b; g; h; c }
   ;;
 end
+
+type ecos_params =
+  { n : int (** Number of primal variables *)
+  ; m : int (** Number of constraints. Dimension 1 of matrix h *)
+  ; p : int
+    (** Number of equality constraints. Dimension 1 of Matrix A and length of vector b*)
+  ; l : int (** Dimentsion of the positive orthant *)
+  ; ncones : int (** Number of second-order cones present in problem *)
+  ; q : int array (** Array of length ncones; q[i] defines the dimension of the cone i *)
+  ; e : int (** Number of exponential cones present in problem *)
+  ; g : Constr_Set.g
+  ; a : Constr_Set.a
+  ; h : Constr_Set.h
+  ; b : Constr_Set.b (* TODO: cost vector *)
+  }
+
+let get_params (ws : ws) =
+  let constrs =
+    List.map ws.affine_exprs ~f:(fun e -> Eval.eval_constr ws e) |> List.concat
+  in
+  let n = !(ws.vars) in
+  let set = Constr_Set.create ws constrs in
+  let m = Array.length set.h in
+  let p = Array.length set.b in
+  let l = Array.length set.g in
+  let ncones = 0 in
+  let q = [||] in
+  let e = 0 in
+  let a = set.a in
+  let b = set.b in
+  let g = set.g in
+  let h = set.h in
+  { n; m; p; l; ncones; q; e; a; b; g; h }
+;;
