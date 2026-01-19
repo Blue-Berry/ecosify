@@ -114,7 +114,8 @@ let variables ws size =
           Var.Atom !(ws.vars))))
 ;;
 
-let add_cost e : affine_expr =
+let add_cost : type a. a expr -> affine_expr =
+  fun e ->
   match witness_of_expr e with
   | Var.Atom_wit -> Cost_atom e
   | Var.Vec_wit -> Cost_vec e
