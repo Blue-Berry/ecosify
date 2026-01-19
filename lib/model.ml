@@ -209,10 +209,33 @@ module Eval_constr = struct
     ;;
 
     let merge (xs : t) (ys : t) =
+      let n_max =
+        max (Array.length xs.data) (Array.length ys.data)
+        |> max
+             (List.max_elt xs.coeffs ~compare:(fun a b ->
+                Int.compare (Array.length a) (Array.length b))
+              |> Option.value ~default:[||]
+              |> Array.length)
+        |> max
+             (List.max_elt ys.coeffs ~compare:(fun a b ->
+                Int.compare (Array.length a) (Array.length b))
+              |> Option.value ~default:[||]
+              |> Array.length)
+      in
+      let resize x =
+        if Array.length x < n_max
+        then (
+          let x' = Array.create (0, 0.) ~len:n_max in
+          Array.blito ~src:x ~dst:x' ();
+          x')
+        else x
+      in
       let rec join (coeffs : (int * float) array list) ~(acc : (int * float) array list) =
         match coeffs with
         | [] -> acc
         | x :: x1 :: xs when Int.(fst x.(0) = fst x1.(0)) ->
+          let x = resize x in
+          let x1 = resize x1 in
           let x' =
             Array.map2_exn x x1 ~f:(fun (id1, coeff1) (id2, coeff2) ->
               assert (Int.(id1 = id2));
@@ -249,9 +272,33 @@ module Eval_constr = struct
     ;;
 
     let expand (t : t) : ((Var.var_id * float) list * float) list =
+      let n_max =
+        max
+          (Array.length t.data)
+          (List.max_elt t.coeffs ~compare:(fun a b ->
+             Int.compare (Array.length a) (Array.length b))
+           |> Option.value ~default:[||]
+           |> Array.length)
+      in
+      let resize_coeffs x =
+        if Array.length x < n_max
+        then (
+          let x' = Array.create (0, 0.) ~len:n_max in
+          Array.blito ~src:x ~dst:x' ();
+          x')
+        else x
+      in
+      let resize_data x =
+        if Array.length x < n_max
+        then (
+          let x' = Array.create 0. ~len:n_max in
+          Array.blito ~src:x ~dst:x' ();
+          x')
+        else x
+      in
       let ts : ((Var.var_id * float) list * float) list =
-        List.init (Array.length t.data) ~f:(fun i ->
-          List.map t.coeffs ~f:(fun x -> x.(i)), t.data.(i))
+        List.init n_max ~f:(fun i ->
+          List.map t.coeffs ~f:(fun x -> (resize_coeffs x).(i)), (resize_data t.data).(i))
       in
       ts
     ;;
