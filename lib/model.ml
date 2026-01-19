@@ -276,7 +276,7 @@ module Eval = struct
           | _ -> failwith "Invalid array length")
       ;;
 
-      let sub l r = add l (scale (-1.) r)
+      let sub ws l r = add ws l (scale (-1.) r)
 
       let rec of_expr : ws -> Var.vec expr -> t =
         fun ws e ->
@@ -389,7 +389,7 @@ module Eval = struct
         coeffs
       ;;
 
-      let sub l r = add l (scale (-1.) r)
+      let sub ws l r = add ws l (scale (-1.) r)
 
       let rec of_expr : ws -> Var.vec expr -> t =
         fun ws e ->
