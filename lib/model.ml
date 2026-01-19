@@ -133,7 +133,7 @@ module Eval = struct
     | Cost of coeff list
   [@@deriving sexp_of]
 
-  module Linear = struct
+  module Coeff_op = struct
     module Atom = struct
       let scale : float -> coeff list -> coeff list =
         fun s cs -> List.map cs ~f:(fun (id, c) -> id, s *. c)
@@ -187,7 +187,6 @@ module Eval = struct
   end
 
   module Constr = struct
-    (* TODO: duplicated coefficient code in cost and constraints *)
     module Atom = struct
       type t =
         { coeffs : coeff list
@@ -198,11 +197,11 @@ module Eval = struct
       let of_const c = { coeffs = []; const = c }
 
       let scale s { coeffs; const } =
-        { coeffs = Linear.Atom.scale s coeffs; const = s *. const }
+        { coeffs = Coeff_op.Atom.scale s coeffs; const = s *. const }
       ;;
 
       let add (xs : t) (ys : t) =
-        { coeffs = Linear.Atom.merge xs.coeffs ys.coeffs; const = xs.const +. ys.const }
+        { coeffs = Coeff_op.Atom.merge xs.coeffs ys.coeffs; const = xs.const +. ys.const }
       ;;
 
       let sub l r = add l (scale (-1.) r)
@@ -270,7 +269,7 @@ module Eval = struct
         let coeffs : coeff array list =
           xs.coeffs @ ys.coeffs
           |> List.sort ~compare:(fun a b -> Int.compare (fst a.(0)) (fst b.(0)))
-          |> Linear.Vec.join n_max ~acc:[]
+          |> Coeff_op.Vec.join n_max ~acc:[]
         in
         if Array.length xs.consts = Array.length ys.consts
         then
@@ -298,8 +297,8 @@ module Eval = struct
 
       let expand (t : t) : row list =
         let n_max = max_length t in
-        let pad_coeffs = Linear.Vec.pad_array ~default:(0, 0.) ~len:n_max in
-        let consts = Linear.Vec.pad_array ~default:0. ~len:n_max t.consts in
+        let pad_coeffs = Coeff_op.Vec.pad_array ~default:(0, 0.) ~len:n_max in
+        let consts = Coeff_op.Vec.pad_array ~default:0. ~len:n_max t.consts in
         List.init n_max ~f:(fun i ->
           List.map t.coeffs ~f:(fun x -> (pad_coeffs x).(i)), consts.(i))
       ;;
@@ -325,8 +324,8 @@ module Eval = struct
       type t = coeff list
 
       let of_var id : t = [ id, 1. ]
-      let scale = Linear.Atom.scale
-      let add = Linear.Atom.merge
+      let scale = Coeff_op.Atom.scale
+      let add = Coeff_op.Atom.merge
       let sub l r = add l (scale (-1.) r)
 
       let rec of_expr : Var.atom expr -> t = function
@@ -361,7 +360,7 @@ module Eval = struct
         let coeffs : t =
           xs @ ys
           |> List.sort ~compare:(fun a b -> Int.compare (fst a.(0)) (fst b.(0)))
-          |> Linear.Vec.join n_max ~acc:[]
+          |> Coeff_op.Vec.join n_max ~acc:[]
         in
         coeffs
       ;;
@@ -382,7 +381,7 @@ module Eval = struct
 
       let expand ws (t : t) =
         let n_max = !(ws.vars) in
-        let pad_coeffs = Linear.Vec.pad_array ~default:(0, 0.) ~len:n_max in
+        let pad_coeffs = Coeff_op.Vec.pad_array ~default:(0, 0.) ~len:n_max in
         List.init n_max ~f:(fun i -> List.map t ~f:(fun x -> (pad_coeffs x).(i)))
         |> List.concat
       ;;
