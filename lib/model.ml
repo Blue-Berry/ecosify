@@ -127,7 +127,7 @@ let add_constr : ws -> affine_expr -> unit =
   fun ws e -> ws.affine_exprs <- e :: ws.affine_exprs
 ;;
 
-let const_of_list xs = Data (Array.of_list xs)
+let consts_of_list xs = Data (Array.of_list xs)
 
 module Eval : sig
   type coeff = int * float
