@@ -27,26 +27,15 @@ module Infix : sig
   val ( .%{}<- ) : Core.vec Var.t expr -> int -> Var.atom Var.t -> unit
 end
 
-type ws =
-  { vars : int ref
-  ; mutable affine_exprs : affine_expr list
-  }
+type ws
 
 val new_ws : unit -> ws
 val variable : ws -> Var.atom expr
 val variables : ws -> int -> Var.vec expr
-val add_cost : ws -> 'a expr -> unit
-val add_constr : ws -> affine_expr -> unit
+val cost : ws -> 'a expr -> unit
+val constr : ws -> affine_expr -> unit
 val consts_of_list : float list -> Var.vec expr
-
-module Eval : sig
-  type coeff
-  type row
-  type t
-
-  val sexp_of_t : t -> Sexplib0.Sexp.t
-  val of_affine_expr : ws -> affine_expr -> t list
-end
+val const : float -> Var.atom expr
 
 module Constr_Set : sig
   type a
@@ -72,9 +61,6 @@ module Constr_Set : sig
   type t
 
   val sexp_of_t : t -> Sexplib0.Sexp.t
-  val create_matrix : ws -> Eval.coeff list list -> float array array
-  val create_cost : ws -> Eval.coeff list -> c
-  val create : ws -> Eval.t list -> t
 end
 
 type ecos_params =

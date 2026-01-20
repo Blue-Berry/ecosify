@@ -19,11 +19,6 @@ module Var = struct
     | Atom _ -> Atom_wit
     | Vec _ -> Vec_wit
   ;;
-
-  let size : type a. a t -> int = function
-    | Atom _ -> 1
-    | Vec ts -> Array.length ts
-  ;;
 end
 
 type 'a expr =
@@ -114,7 +109,7 @@ let variables ws size =
           Var.Atom !(ws.vars))))
 ;;
 
-let add_cost : type a. ws -> a expr -> unit =
+let cost : type a. ws -> a expr -> unit =
   fun ws e ->
   ws.affine_exprs
   <- (match witness_of_expr e with
@@ -123,10 +118,11 @@ let add_cost : type a. ws -> a expr -> unit =
      :: ws.affine_exprs
 ;;
 
-let add_constr : ws -> affine_expr -> unit =
+let constr : ws -> affine_expr -> unit =
   fun ws e -> ws.affine_exprs <- e :: ws.affine_exprs
 ;;
 
+let const x = Const x
 let consts_of_list xs = Data (Array.of_list xs)
 
 module Eval : sig
@@ -138,7 +134,6 @@ module Eval : sig
     | Inequality_le of row
     | Cost of coeff list
 
-  val sexp_of_t : t -> Sexplib0.Sexp.t
   val of_affine_expr : ws -> affine_expr -> t list
 end = struct
   type coeff = Var.var_id * float [@@deriving sexp_of]
