@@ -114,11 +114,17 @@ let variables ws size =
           Var.Atom !(ws.vars))))
 ;;
 
-let add_cost : type a. a expr -> affine_expr =
-  fun e ->
-  match witness_of_expr e with
-  | Var.Atom_wit -> Cost_atom e
-  | Var.Vec_wit -> Cost_vec e
+let add_cost : type a. ws -> a expr -> unit =
+  fun ws e ->
+  ws.affine_exprs
+  <- (match witness_of_expr e with
+      | Var.Atom_wit -> Cost_atom e
+      | Var.Vec_wit -> Cost_vec e)
+     :: ws.affine_exprs
+;;
+
+let add_constr : ws -> affine_expr -> unit =
+  fun ws e -> ws.affine_exprs <- e :: ws.affine_exprs
 ;;
 
 let const_of_list xs = Data (Array.of_list xs)
@@ -474,8 +480,10 @@ type ecos_params =
   ; g : Constr_Set.g
   ; a : Constr_Set.a
   ; h : Constr_Set.h
-  ; b : Constr_Set.b (* TODO: cost vector *)
+  ; b : Constr_Set.b
+  ; c : Constr_Set.c
   }
+[@@deriving sexp_of]
 
 let get_params (ws : ws) =
   let constrs =
@@ -493,5 +501,6 @@ let get_params (ws : ws) =
   let b = set.b in
   let g = set.g in
   let h = set.h in
-  { n; m; p; l; ncones; q; e; a; b; g; h }
+  let c = set.c in
+  { n; m; p; l; ncones; q; e; a; b; g; h; c }
 ;;

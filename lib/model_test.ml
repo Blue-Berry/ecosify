@@ -238,9 +238,14 @@ let%expect_test "Cost" =
   let x2 = variable ws in
   let x3 = variable ws in
   let open Infix in
-  let a = add_cost (x1 + x2 + x3) in
-  Eval.of_affine_expr ws a |> Constr_Set.create ws |> Constr_Set.sexp_of_t |> print_s;
-  [%expect {| ((a ()) (b ()) (g ()) (h ()) (c (1 1 1))) |}]
+  add_cost ws (x1 + x2 + x3);
+  let p = get_params ws in
+  sexp_of_ecos_params p |> print_s;
+  [%expect
+    {|
+    ((n 3) (m 0) (p 0) (l 0) (ncones 0) (q ()) (e 0) (g ()) (a ()) (h ())
+     (b ()) (c (1 1 1)))
+    |}]
 ;;
 
 let%expect_test "create vec matrices" =
@@ -250,11 +255,33 @@ let%expect_test "create vec matrices" =
   let x2 = variables ws 10 in
   let x3 = variables ws 10 in
   let open Infix in
-  let a = add_cost (x1 - x2 + x3) in
-  Eval.of_affine_expr ws a |> Constr_Set.create ws |> Constr_Set.sexp_of_t |> print_s;
+  add_cost ws (x1 - x2 + x3);
+  let p = get_params ws in
+  sexp_of_ecos_params p |> print_s;
   [%expect
     {|
-    ((a ()) (b ()) (g ()) (h ())
+    ((n 30) (m 0) (p 0) (l 0) (ncones 0) (q ()) (e 0) (g ()) (a ()) (h ())
+     (b ())
      (c (1 1 1 1 1 1 1 1 1 1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 1 1 1 1 1 1 1 1 1 1)))
+    |}]
+;;
+
+let%expect_test "params" =
+  let open Model in
+  let ws = new_ws () in
+  let x1 = variable ws in
+  let x2 = variable ws in
+  let x3 = variable ws in
+  let open Infix in
+  add_cost ws (x1 + x2 + x3);
+  add_constr ws (x1 + x2 == Const 1.);
+  add_constr ws (x1 <= Const 2.);
+  add_constr ws (x1 >= Const 4.);
+  let p = get_params ws in
+  sexp_of_ecos_params p |> print_s;
+  [%expect
+    {|
+    ((n 3) (m 2) (p 1) (l 2) (ncones 0) (q ()) (e 0) (g ((1 0 0) (-1 0 0)))
+     (a ((1 1 0))) (h (2 -4)) (b (1)) (c (1 1 1)))
     |}]
 ;;
