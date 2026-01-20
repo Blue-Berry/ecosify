@@ -124,6 +124,7 @@ let constr : ws -> affine_expr -> unit =
 
 let const x = Const x
 let consts_of_list xs = Data (Array.of_list xs)
+let consts : int -> float -> Var.vec expr = fun n v -> Data (Array.init n ~f:(fun _ -> v))
 
 module Eval : sig
   type coeff = int * float

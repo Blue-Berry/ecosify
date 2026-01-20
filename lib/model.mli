@@ -35,6 +35,7 @@ val variables : ws -> int -> Var.vec expr
 val cost : ws -> 'a expr -> unit
 val constr : ws -> affine_expr -> unit
 val consts_of_list : float list -> Var.vec expr
+val consts : int -> float -> Var.vec expr
 val const : float -> Var.atom expr
 
 module Constr_Set : sig
